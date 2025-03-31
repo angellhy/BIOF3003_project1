@@ -160,12 +160,10 @@ export default function Home() {
                 <MetricsCard
                   title="AVG HEART RATE"
                   value={historicalData.avgHeartRate || 0} // Display historical avg heart rate
-                  confidence={0} // No confidence data for historical data
                 />
                 <MetricsCard
                   title="AVG HRV"
                   value={historicalData.avgHRV || 0} // Display historical avg HRV
-                  confidence={0} // No confidence data for historical data
                 />
               </>
             )}
