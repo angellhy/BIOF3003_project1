@@ -1,4 +1,3 @@
-// components/ChartComponent.tsx
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -67,8 +66,11 @@ export default function ChartComponent({
   };
 
   return (
-    <div className="bg-white p-4 rounded-lg shadow-md">
-      <h2 className="text-lg font-semibold mb-2">PPG Signal</h2>
+    <div
+      className="bg-white p-4 rounded-lg shadow-md border-2 border-green-200" // Light green border
+      style={{ color: '#15803d' }} // Dark green text color
+    >
+      <h2 className="text-lg font-semibold mb-2 text-green-700">PPG Signal</h2> {/* Dark green title */}
       <div style={{ height: '300px' }}>
         <Line data={chartData} options={chartOptions} />
       </div>

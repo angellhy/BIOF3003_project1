@@ -1,4 +1,3 @@
-// app/page.tsx
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import CameraFeed from './components/CameraFeed';
@@ -7,13 +6,15 @@ import SignalCombinationSelector from './components/SignalCombinationSelector';
 import ChartComponent from './components/ChartComponent';
 import usePPGProcessing from './hooks/usePPGProcessing';
 import useSignalQuality from './hooks/useSignalQuality';
+import useMongoDB from './hooks/useMongoDB';
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
-  const [isSampling, setIsSampling] = useState(false); // New state for sampling
-  const [isUploading, setIsUploading] = useState(false);
   const [signalCombination, setSignalCombination] = useState('default');
   const [showConfig, setShowConfig] = useState(false);
+  const [currentSubject, setCurrentSubject] = useState('');
+  const [confirmedSubject, setConfirmedSubject] = useState('');
+  const { pushDataToMongo, historicalData, lastAccess } = useMongoDB(confirmedSubject);
 
   // Define refs for video and canvas
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -31,7 +32,16 @@ export default function Home() {
 
   const { signalQuality, qualityConfidence } = useSignalQuality(ppgData);
 
-  // Start or stop recording
+  // Confirm User Function
+  const confirmUser = () => {
+    if (currentSubject.trim()) {
+      setConfirmedSubject(currentSubject.trim());
+    } else {
+      alert('Please enter a valid Subject ID.');
+    }
+  };
+
+  // Move useEffect hooks here, before any return statement
   useEffect(() => {
     if (isRecording) {
       startCamera();
@@ -44,7 +54,7 @@ export default function Home() {
     let animationFrame: number;
     const processFrameLoop = () => {
       if (isRecording) {
-        processFrame(); // Call the frame processing function
+        processFrame();
         animationFrame = requestAnimationFrame(processFrameLoop);
       }
     };
@@ -52,122 +62,114 @@ export default function Home() {
       processFrameLoop();
     }
     return () => {
-      cancelAnimationFrame(animationFrame); // Clean up animation frame on unmount
+      cancelAnimationFrame(animationFrame);
     };
   }, [isRecording]);
 
-  // Automatically send data every 10 seconds
-  // Automatically send data every second when sampling is enabled
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null;
-
-    if (isSampling && ppgData.length > 0) {
-      intervalId = setInterval(() => {
-        pushDataToMongo();
-      }, 10000); // Send data every second
-    }
-
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [isSampling, ppgData]);
-
-  const pushDataToMongo = async () => {
-    if (isUploading) return; // Prevent overlapping calls
-
-    setIsUploading(true); // Lock the function
-    if (ppgData.length === 0) {
-      console.warn('No PPG data to send to MongoDB');
-      return;
-    }
-    // Prepare the record data – adjust or add additional fields as needed
-    const recordData = {
-      heartRate: {
-        bpm: isNaN(heartRate.bpm) ? 0 : heartRate.bpm, // Replace NaN with "ERRATIC"
-        confidence: hrv.confidence || 0,
-      },
-      hrv: {
-        sdnn: isNaN(hrv.sdnn) ? 0 : hrv.sdnn, // Replace NaN with "ERRATIC"
-        confidence: hrv.confidence || 0,
-      },
-
-      ppgData: ppgData, // Use the provided ppgData array
-      timestamp: new Date(),
-    };
-
-    try {
-      // Make a POST request to your backend endpoint that handles saving to MongoDB
-      const response = await fetch('/api/save-record', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(recordData),
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        console.log('✅ Data successfully saved to MongoDB:', result.data);
-      } else {
-        console.error('❌ Upload failed:', result.error);
-      }
-    } catch (error) {
-      console.error('🚨 Network error - failed to save data:', error);
-    } finally {
-      setIsUploading(false); // Unlock the function
-    }
+  // Prepare the record data – adjust or add additional fields as needed
+  const recordData = {
+    heartRate: {
+      bpm: isNaN(heartRate.bpm) ? 0 : heartRate.bpm, // Replace NaN with "ERRATIC"
+      confidence: hrv.confidence || 0,
+    },
+    hrv: {
+      sdnn: isNaN(hrv.sdnn) ? 0 : hrv.sdnn, // Replace NaN with "ERRATIC"
+      confidence: hrv.confidence || 0,
+    },
+    ppgData: ppgData, // Use the provided ppgData array
+    timestamp: new Date(),
   };
 
   return (
     <div className="flex flex-col items-center p-4">
+      {/* User Input Section */}
+      {!confirmedSubject && 
+      <div className="w-full max-w-4xl mb-4">
+        <input
+          type="text"
+          value={currentSubject}
+          onChange={(e) => setCurrentSubject(e.target.value)}
+          placeholder="Enter Subject ID"
+          className="border border-gray-300 rounded-md p-2"
+        />
+        <button
+          onClick={confirmUser}
+          className="bg-purple-300 text-white px-4 py-2 rounded-md ml-2 hover:bg-purple-400 transition-all duration-300"
+        >
+          Confirm User
+        </button>
+      </div>}
+      {confirmedSubject && 
+      <p className="text-green-800 font-bold text-xl">User: {confirmedSubject}</p>}
+
       {/* Header Section */}
       <div className="flex flex-col md:flex-row items-center justify-between w-full max-w-4xl mb-4">
         {/* Title */}
-        <h1 className="text-3xl font-bold">HeartLen</h1>
+        <h1
+          className="text-3xl font-bold bg-gradient-to-r from-green-500 to-purple-500 bg-clip-text text-transparent"
+        >
+          HeartLens
+        </h1>
         {/* Recording Button */}
         <button
           onClick={() => setIsRecording(!isRecording)}
           className={`p-3 rounded-lg text-sm transition-all duration-300 ${
             isRecording
-              ? 'bg-red-500 hover:bg-red-600 text-white'
-              : 'bg-cyan-500 hover:bg-cyan-600 text-white'
+              ? 'bg-purple-300 hover:bg-purple-400 text-white'
+              : 'bg-purple-300 hover:bg-purple-400 text-white'
           }`}
         >
           {isRecording ? '⏹ STOP' : '⏺ START'} RECORDING
-        </button>
-        {/* Sampling Button */}
-        <button
-          onClick={() => setIsSampling(!isSampling)}
-          className={`p-3 rounded-lg text-sm transition-all duration-300 ml-2 ${
-            isSampling
-              ? 'bg-green-500 hover:bg-green-600 text-white'
-              : 'bg-gray-500 hover:bg-gray-600 text-white'
-          }`}
-          disabled={!isRecording} // Enable only when recording is active
-        >
-          {isSampling ? '⏹ STOP SAMPLING' : '⏺ START SAMPLING'}
         </button>
       </div>
 
       {/* Main Grid: Camera and Chart Side by Side */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl">
-        {/* Left Column: Camera Feed */}
+        {/* Left Column: Camera Feed and Historical Data */}
         <div className="space-y-4">
           {/* Camera Feed */}
           <CameraFeed videoRef={videoRef} canvasRef={canvasRef} />
-          {/* Signal Combination Selector */}
+
+          {/* Toggle Config Button */}
           <button
             onClick={() => setShowConfig((prev) => !prev)}
-            className="px-4 py-2 bg-cyan-500 text-white rounded hover:bg-cyan-600 w-full"
+            className="px-4 py-2 bg-purple-300 text-white rounded hover:bg-purple-400 transition-all duration-300 w-full"
           >
             Toggle Config
           </button>
+
+          {/* Signal Combination Dropdown (appears when showConfig is true) */}
           {showConfig && (
-            <SignalCombinationSelector
-              signalCombination={signalCombination}
-              setSignalCombination={setSignalCombination}
-            />
+            <div className="w-full mt-2">
+              <SignalCombinationSelector
+                signalCombination={signalCombination}
+                setSignalCombination={setSignalCombination}
+              />
+            </div>
           )}
+
+          {/* Historical Data */}
+          <div className="flex flex-col gap-4 mt-4">
+            {/* Last Access Date (Plain Text) */}
+            <div className="text-sm text-green-600">
+              <strong>Last Access:</strong> {lastAccess ? lastAccess.toLocaleString() : 'NA'}
+            </div>
+
+            {historicalData && (
+              <>
+                <MetricsCard
+                  title="AVG HEART RATE"
+                  value={historicalData.avgHeartRate || 0} // Display historical avg heart rate
+                  confidence={0} // No confidence data for historical data
+                />
+                <MetricsCard
+                  title="AVG HRV"
+                  value={historicalData.avgHRV || 0} // Display historical avg HRV
+                  confidence={0} // No confidence data for historical data
+                />
+              </>
+            )}
+          </div>
         </div>
 
         {/* Right Column: Chart and Metrics */}
@@ -177,8 +179,8 @@ export default function Home() {
 
           {/* Save Data to MongoDB Button */}
           <button
-            onClick={pushDataToMongo}
-            className="w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+            onClick={() => { pushDataToMongo(recordData) }}
+            className="w-full px-4 py-2 bg-purple-300 text-white rounded hover:bg-purple-400 transition-all duration-300"
           >
             Save Data to MongoDB
           </button>
