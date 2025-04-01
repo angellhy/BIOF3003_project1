@@ -6,23 +6,20 @@ interface SignalQualityResults {
   qualityConfidence: number;
 }
 
-export default function useSignalQuality(ppgData: number[], fs: number = 100): SignalQualityResults {
+export default function useSignalQuality(ppgData: number[]): SignalQualityResults {
   const modelRef = useRef<tf.LayersModel | null>(null);
   const [signalQuality, setSignalQuality] = useState<string>('--');
   const [qualityConfidence, setQualityConfidence] = useState<number>(0);
 
-  // Load TensorFlow.js model
   useEffect(() => {
     const loadModel = async () => {
       try {
-        const loadedModel = await tf.loadLayersModel('/tfjs_model/model.json');
-        modelRef.current = loadedModel;
-        console.log('PPG quality assessment model loaded successfully');
+        modelRef.current = await tf.loadLayersModel('/tfjs_model/model.json');
+        console.log('PPG quality model loaded');
       } catch (error) {
-        console.error('Error loading model:', error);
+        console.error('Failed to load model:', error);
       }
     };
-
     loadModel();
   }, []);
 
@@ -34,27 +31,16 @@ export default function useSignalQuality(ppgData: number[], fs: number = 100): S
 
   const assessSignalQuality = async (signal: number[]) => {
     if (!modelRef.current || signal.length < 100) return;
-
     try {
-      // Extract features using the updated method
-      const features = extractPpgFeatures(signal, fs);
-
-      const inputTensor = tf.tensor(features).reshape([1, features.length]);
-
-      // Model prediction
+      const features = extractPpgFeatures(signal);
+      const inputTensor = tf.tensor2d([features]);
       const prediction = (await modelRef.current.predict(inputTensor)) as tf.Tensor;
       const probabilities = await prediction.data();
-
-      // Get classification result
       const classIndex = probabilities.indexOf(Math.max(...probabilities));
       const classes = ['bad', 'acceptable', 'excellent'];
-      const predictedClass = classes[classIndex];
-      const confidence = probabilities[classIndex] * 100;
 
-      // Update state
-      setSignalQuality(predictedClass);
-      setQualityConfidence(confidence);
-
+      setSignalQuality(classes[classIndex]);
+      setQualityConfidence(probabilities[classIndex] * 100);
       inputTensor.dispose();
       prediction.dispose();
     } catch (error) {
@@ -62,61 +48,55 @@ export default function useSignalQuality(ppgData: number[], fs: number = 100): S
     }
   };
 
-  // Feature extraction method (updated)
-  const extractPpgFeatures = (signal: number[], fs: number = 100): number[] => {
-    const epsilon = 1e-7;  // Small value for numerical stability
-
-    if (signal.length === 0) {
-      return new Array(14).fill(0);  // Return a zero-vector if signal is empty
-    }
-
-    const mean = Math.mean(signal);
-    const median = Math.median(signal);
-    const std = Math.std(signal);
-    const variance = Math.var(signal);
-
-    const diff = signal - mean;
-    const skewness = Math.mean(diff ** 3) / (Math.pow(std, 3) + epsilon);
-    const kurtosis = Math.mean(diff ** 4) / (Math.pow(std, 4) + epsilon);
-
-    const signalRange = Math.max(signal) - Math.min(signal);
-    const zeroCrossings = Math.sum(Math.diff(signal).map(val => val !== 0 ? 1 : 0));
-
-    const rms = Math.sqrt(Math.mean(signal ** 2));
+  const extractPpgFeatures = (signal: number[]): number[] => {
+    const epsilon = 1e-7;
+    if (!signal.length) return Array(12).fill(0);
+    
+    const mean = signal.reduce((sum, val) => sum + val, 0) / signal.length;
+    const median = calculateMedian(signal);
+    const std = Math.sqrt(signal.reduce((sum, val) => sum + (val - mean) ** 2, 0) / signal.length);
+    const variance = std ** 2;
+    const skewness = signal.reduce((sum, val) => sum + (val - mean) ** 3, 0) / (std ** 3 * signal.length + epsilon);
+    const kurtosis = signal.reduce((sum, val) => sum + (val - mean) ** 4, 0) / (std ** 4 * signal.length + epsilon);
+    const signalRange = Math.max(...signal) - Math.min(...signal);
+    const zeroCrossings = countZeroCrossings(signal);
+    const rms = Math.sqrt(signal.reduce((sum, val) => sum + val ** 2, 0) / signal.length);
     const peakToPeak = signalRange;
+    const fftMagnitudes = computeFFT(signal);
+    const dominantFreq = fftMagnitudes.indexOf(Math.max(...fftMagnitudes));
+    const hist = computeHistogram(signal, 10);
+    const signalEntropy = computeEntropy(hist.map(v => v + epsilon));
 
-    // Frequency-Domain Features
-    const fftCoeffs = new Float32Array(signal); // Create a Float32Array for the signal
-    const fftMagnitudes = Math.abs(fftCoeffs); // Compute magnitudes
+    return [mean, median, std, variance, skewness, kurtosis, signalRange, zeroCrossings, rms, peakToPeak, dominantFreq, signalEntropy];
+  };
 
-    // We slice the first half of the FFT spectrum manually
-    const halfFft = fftMagnitudes.slice(0, Math.floor(signal.length / 2));
-    const normalizedFft = halfFft.map(val => val / (halfFft.reduce((sum, v) => sum + v, 0) + epsilon)); // Normalize
+  const calculateMedian = (arr: number[]): number => {
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
 
-    const dominantFreq = normalizedFft.indexOf(Math.max(...normalizedFft)); // Most dominant frequency index
+  const countZeroCrossings = (arr: number[]): number => {
+    return arr.reduce((count, val, i) => (i > 0 && (val > 0) !== (arr[i - 1] > 0) ? count + 1 : count), 0);
+  };
 
-    // Power Spectral Density (Welch Method)
-    const { freqs, psd } = welch(signal, fs);
-    const maxPsd = Math.max(...psd);  // Maximum power density
-    const meanPsd = Math.mean(psd);
-    const dominantFreqHz = freqs[psd.indexOf(Math.max(...psd))];  // Dominant frequency in Hz
+  const computeFFT = (signal: number[]): number[] => {
+    const s = tf.complex(signal, new Array(signal.length).fill(0));
+    const fftCoeffs = tf.spectral.fft(s).abs().arraySync() as number[]; // fr??
+    return fftCoeffs.slice(0, Math.floor(signal.length / 2));
+  };
 
-    // Entropy (Measures randomness in signal)
-    const hist = Array(10).fill(0);
-    const binSize = signalRange / 10;
-    signal.forEach(val => {
-      const binIndex = Math.min(9, Math.floor((val - Math.min(...signal)) / binSize));
-      hist[binIndex]++;
-    });
-    const signalEntropy = entropy(hist.map(v => v / signal.length) + epsilon); // Normalize histogram
+  const computeHistogram = (arr: number[], bins: number): number[] => {
+    const min = Math.min(...arr);
+    const max = Math.max(...arr);
+    const binSize = (max - min) / bins;
+    const hist = new Array(bins).fill(0);
+    arr.forEach(val => hist[Math.min(bins - 1, Math.floor((val - min) / binSize))]++);
+    return hist.map(v => v / arr.length);
+  };
 
-    const features = [
-      mean, median, std, variance, skewness, kurtosis,
-      signalRange, zeroCrossings, rms, peakToPeak,
-      dominantFreq, maxPsd, meanPsd, signalEntropy
-    ];
-
-    return features;
+  const computeEntropy = (probs: number[]): number => {
+    return -probs.reduce((sum, p) => sum + (p > 0 ? p * Math.log2(p) : 0), 0);
   };
 
   return { signalQuality, qualityConfidence };

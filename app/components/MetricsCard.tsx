@@ -5,15 +5,13 @@ interface MetricsCardProps {
   value: number | string | { bpm?: number; sdnn?: number }; // Support for structured types
   unit?: string;
   confidence?: number; // Optional confidence for cases where it's not needed
-  color?: 'cyan' | 'purple' | 'pink';
 }
 
 export default function MetricsCard({
   title,
   value,
   unit,
-  confidence,
-  color = 'cyan',
+  confidence
 }: MetricsCardProps) {
   return (
     <div
