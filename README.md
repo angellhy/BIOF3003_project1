@@ -31,21 +31,27 @@ HeartLen is a web-based application designed to process photoplethysmography (PP
 │    │    │    └── route.ts       # POST handler for saving records
 │    │    ├── last-access     # Retrieve historical data
 │    │    │    └── route.ts       # GET handler for fetching records
-│    │    ├── RecordSchema.ts   # Save PPG data endpoints
+│    │    └── RecordSchema.ts   # MongoDB schema definition
 │    │
 │    └── page.tsx             # Main application page
 │
 ├── /public                   # Public assets
-│    └── tfjs_model               # ML models for signal processing
+│    └── tfjs_model          # ML models for signal processing
 │
-├── types.ts                    # TypeScript type definitions
+├── /docs                    # Documentation
+│    ├── BIOF3003_backend.html    # Backend documentation
+│    ├── BIOF3003_backend.ipynb   # Jupyter notebook documentation
+│    ├── HeartLen Technical Documentation.docx  # Technical specs
+│    └── HeartLen User Guide.md   # User manual
 │
-├── .env.local               # Environment variables
+├── .eslintrc.json          # ESLint configuration
 ├── .gitignore              # Git ignore rules
-├── next.config.js          # Next.js configuration
-├── package.json            # Project dependencies and scripts
+├── next.config.ts          # Next.js configuration
+├── package.json            # Project dependencies
+├── package-lock.json       # Dependency lock file
+├── postcss.config.mjs      # PostCSS configuration
+├── tailwind.config.ts      # Tailwind CSS configuration
 ├── tsconfig.json          # TypeScript configuration
-├── HeartLen User Guide.md          # User guide for the application
 └── README.md              # Project documentation
 ```
 
